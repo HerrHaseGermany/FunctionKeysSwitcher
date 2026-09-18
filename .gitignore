@@ -1,0 +1,11 @@
+.DS_Store
+
+# Build output
+build/
+*.o
+
+# VS Code
+.vscode/
+
+# Logs
+*.log
