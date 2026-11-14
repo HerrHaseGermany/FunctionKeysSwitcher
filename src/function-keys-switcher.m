@@ -1,10 +1,12 @@
 #import <Cocoa/Cocoa.h>
 
-#define VERSION @"1.0.0"
+#define VERSION @"1.0.1"
 
 static NSArray<NSString *> *fnBundleIDs;
 static BOOL lastFnState;
 static BOOL stateInitialized = NO;
+static BOOL switching = NO;
+static BOOL requestedFnState;
 
 static NSString * const activateSettings =
     @"/System/Library/PrivateFrameworks/SystemAdministration.framework/Resources/activateSettings";
@@ -56,39 +58,49 @@ static void loadConfiguration(void)
           (unsigned long)fnBundleIDs.count);
 }
 
+static BOOL runTask(NSString *path, NSArray<NSString *> *arguments)
+{
+    NSTask *task = [[NSTask alloc] init];
+    task.executableURL = [NSURL fileURLWithPath:path];
+    task.arguments = arguments;
+    NSError *error = nil;
+    if (![task launchAndReturnError:&error]) {
+        NSLog(@"Could not launch %@: %@", path, error.localizedDescription);
+        return NO;
+    }
+    [task waitUntilExit];
+    if (task.terminationStatus != 0) {
+        NSLog(@"%@ failed with exit status %d", path, task.terminationStatus);
+        return NO;
+    }
+    return YES;
+}
+
 static void setFunctionKeys(BOOL enabled)
 {
-    if (stateInitialized && enabled == lastFnState)
+    // waitUntilExit can run the main run loop and deliver another activation.
+    // Keep its latest request, but never nest two settings updates.
+    requestedFnState = enabled;
+    if (switching)
         return;
 
-    NSTask *defaultsTask = [[NSTask alloc] init];
+    switching = YES;
+    while (!stateInitialized || requestedFnState != lastFnState) {
+        BOOL target = requestedFnState;
+        BOOL succeeded = runTask(@"/usr/bin/defaults", @[
+            @"write", @"-g", @"com.apple.keyboard.fnState", @"-bool",
+            target ? @"true" : @"false"
+        ]) && runTask(activateSettings, @[@"-u"]);
 
-    defaultsTask.launchPath = @"/usr/bin/defaults";
-
-    defaultsTask.arguments = @[
-        @"write",
-        @"-g",
-        @"com.apple.keyboard.fnState",
-        @"-bool",
-        enabled ? @"true" : @"false"
-    ];
-
-    [defaultsTask launch];
-    [defaultsTask waitUntilExit];
-
-    NSTask *activateTask = [[NSTask alloc] init];
-
-    activateTask.launchPath = activateSettings;
-    activateTask.arguments = @[@"-u"];
-
-    [activateTask launch];
-    [activateTask waitUntilExit];
-
-    lastFnState = enabled;
-    stateInitialized = YES;
-
-    NSLog(@"Function keys: %@",
-          enabled ? @"F1-F12" : @"Media keys");
+        if (!succeeded) {
+            stateInitialized = NO;
+            break;
+        }
+        lastFnState = target;
+        stateInitialized = YES;
+        NSLog(@"Function keys: %@", target ? @"F1-F12" : @"Media keys");
+    }
+    switching = NO;
 }
 
 static void handleApplication(NSRunningApplication *app)

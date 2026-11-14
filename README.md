@@ -144,6 +144,29 @@ macOS release.
 
 The current implementation has been tested on macOS 26.
 
+## Karabiner-Elements and F4
+
+A Karabiner rule that opens Launchpad with F4 takes precedence over the
+macOS function-key setting. Add a `frontmost_application_unless` condition
+to that rule's Launchpad manipulators to keep F4 available in WoW:
+
+```json
+{
+    "type": "frontmost_application_unless",
+    "bundle_identifiers": ["^com\\.blizzard\\.worldofwarcraft$"]
+}
+```
+
+## Development check
+
+Run the regression check for overlapping application activations and failed
+settings commands without changing the keyboard settings:
+
+```sh
+clang -fobjc-arc -fblocks -framework Cocoa tests/switching-reentrancy.m -o /tmp/fks-test
+/tmp/fks-test
+```
+
 ## License
 
 MIT
